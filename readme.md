@@ -22,7 +22,7 @@ make test
 ./test
 ```
 
-### Usage
+### Example
 
 ```c
 static void 
