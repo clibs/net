@@ -152,7 +152,7 @@ tls_read(tls_t *tls) {
     }
 
     /*
-     * TODO(Yorkie): returns not 1 nor < 0
+     * must returns not 1 nor < 0
      */
     assert(err == 1);
   }
@@ -170,11 +170,6 @@ tls_read(tls_t *tls) {
     };
   } while (read > 0);
 
-  /*
-   * TODO(Yorkie): To be removed, just for debugging
-   * printf("> Buffer(%zd):\n", buffer_length(tls->buffer));
-   * printf("> %s\n", tls->buffer->data);
-   */
   return ret;
 }
 

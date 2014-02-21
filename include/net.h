@@ -61,6 +61,7 @@ struct net_s {
   void  *data;
   void (*conn_cb)(net_t*);
   void (*read_cb)(net_t*, size_t read, char *buf);
+  void (*error_cb)(net_t*, int code);
   void (*close_cb)(uv_handle_t*);
 };
 
@@ -69,6 +70,12 @@ struct net_s {
  */
 net_t *
 net_new(char * hostname, int port);
+
+/*
+ * Set uv_loop_t for network
+ */
+inline int
+net_set_loop(net_t * net, uv_loop_t * loop);
 
 /*
  * Set SSL's Context
@@ -105,6 +112,12 @@ net_free_cb(uv_handle_t * handle);
  */
 int
 net_resolve(net_t * net);
+
+/*
+ * Default error cb
+ */
+void
+net_error_cb(net_t * net, int err);
 
 /*
  * DNS -> IP done, and call `net_resolve_cb`

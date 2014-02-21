@@ -11,7 +11,14 @@ net_new(char * hostname, int port) {
   net->use_ssl = 0;
   net->conn_cb = NULL;
   net->read_cb = NULL;
+  net->error_cb = NULL;
   return net;
+}
+
+int
+net_set_loop(net_t * net, uv_loop_t * loop) {
+  net->loop = loop;
+  return OK;
 }
 
 int
@@ -23,8 +30,7 @@ net_set_tls(net_t * net, tls_ctx * ctx) {
 
 int
 net_connect(net_t * net) {
-  net_resolve(net);
-  return OK;
+  return net_resolve(net);
 }
 
 int
@@ -64,10 +70,6 @@ net_resolve(net_t * net) {
 
   net->resolver = malloc(sizeof(uv_getaddrinfo_t));
   if (!net->resolver) {
-    /*
-     * TODO(Yorkie): depent parital handles
-     */
-    abort();
     return -1;
   }
 
@@ -79,6 +81,11 @@ net_resolve(net_t * net) {
 }
 
 void
+net_error_cb(net_t * net, int err) {
+  NET_ABORT("net", uv_err_name(err));
+}
+
+void
 net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
   net_t * net = (net_t*) rv->data;
   socketPair_t dest;
@@ -86,10 +93,8 @@ net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
   int ret;
 
   if (stat < 0) {
-    /*
-     * TODO(Yorkie): depent partial handles
-     */
-    abort();
+    net->error_cb(net, stat);
+    return;
   }
 
   net->handle = (uv_tcp_t *) malloc(sizeof(uv_tcp_t));
@@ -111,10 +116,8 @@ net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
   uv_tcp_init(net->loop, net->handle);
   ret = uv_tcp_connect(net->conn, net->handle, dest, net_connect_cb);
   if (ret != OK) {
-    /*
-     * TODO(Yorkie): Should export corresponding error string.
-     */
-     abort();
+    net->error_cb(net, ret);
+    return;
   }
 
   /*
@@ -129,10 +132,8 @@ net_connect_cb(uv_connect_t *conn, int stat) {
   int read;
 
   if (stat < 0) {
-    /*
-     * TODO(Yorkie): Should export corresponding error message.
-     */
-    abort();
+    net->error_cb(net, stat);
+    return;
   }
 
   /*
@@ -177,10 +178,8 @@ net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
   net_t * net = (net_t *) handle->data;
 
   if (nread < 0) {
-    /*
-     * TODO(Yorkie): destroy connection ? or user-land?
-     */
-    abort();
+    net->error_cb(net, nread);
+    return;
   }
 
   /* 
