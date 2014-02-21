@@ -11,7 +11,9 @@
   "license": "MIT",
   "src": [
     "src/net.c",
-    "src/tls.c"
+    "src/tls.c",
+    "include/net.h",
+    "include/tls.h"
   ],
   "dependencies": { 
     "buffer": "*",
