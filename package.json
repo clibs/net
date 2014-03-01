@@ -16,7 +16,6 @@
     "include/tls.h"
   ],
   "dependencies": { 
-    "buffer": "*",
-    "libuv": "*"
+    "buffer": "*"
   }
 }

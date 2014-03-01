@@ -13,6 +13,8 @@ Simple network client
 
 ```sh
 $ clib install clibs/net
+$ git clone https://github.com/joyent/libuv.git deps/libuv
+$ checkout v0.10.25
 ```
 
 ### Run tests
