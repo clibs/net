@@ -15,6 +15,7 @@ typedef struct tls_s {
   SSL *ssl;
   BIO *bio_in;
   BIO *bio_out;
+  int connected;
   char buf[1024];
   char *data;
   buffer_t *buffer;

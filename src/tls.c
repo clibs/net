@@ -37,6 +37,7 @@ tls_create(tls_ctx *ctx) {
   tls->ssl = SSL_new(tls->ctx);
   tls->bio_in = BIO_new(BIO_s_mem());
   tls->bio_out = BIO_new(BIO_s_mem());
+  tls->connected = -1;
   tls->data = malloc(1);
   tls->buffer = buffer_new();
   memset(tls->data, 0, 1);
@@ -170,6 +171,11 @@ tls_read(tls_t *tls) {
     };
   } while (read > 0);
 
+  if (tls->connected == -1) {
+    tls->connected = 1;
+  } else {
+    ret = 0;
+  }
   return ret;
 }
 
