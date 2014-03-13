@@ -12,7 +12,6 @@ typedef struct net_s net_t;
 typedef struct addrinfo net_ai;
 typedef struct sockaddr_in socketPair_t;
 
-
 #define NET_FIELDS                 \
   NET_CONNECTION_FIELDS            \
   NET_UV_FIELDS                    \
@@ -61,8 +60,8 @@ struct net_s {
   NET_FIELDS;
   void  *data;
   void (*conn_cb)(net_t*);
-  void (*read_cb)(net_t*, size_t read, char *buf);
-  void (*error_cb)(net_t*, int code);
+  void (*read_cb)(net_t*, size_t, char*);
+  void (*error_cb)(bs_net_t*, uv_err_t, char*);
   void (*close_cb)(uv_handle_t*);
 };
 

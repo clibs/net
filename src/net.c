@@ -82,19 +82,16 @@ net_resolve(net_t * net) {
 }
 
 void
-net_error_cb(net_t * net, int err) {
-  NET_ABORT("net", uv_err_name(err));
-}
-
-void
 net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
   net_t * net = (net_t*) rv->data;
+  uv_err_t err;
   socketPair_t dest;
   char addr[INET6_ADDRSTRLEN];
   int ret;
 
   if (stat < 0) {
-    net->error_cb(net, stat);
+    err = uv_last_error(net->loop);
+    net->error_cb(net, err, uv_strerror(err));
     return;
   }
 
@@ -107,7 +104,6 @@ net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
    = net->conn->data
    = (void *) net;
 
-  NET_LOG("net", "resolving name");
   uv_ip4_name((socketPair_t *) ai->ai_addr, addr, INET6_ADDRSTRLEN);
   dest = uv_ip4_addr(addr, net->port);
 
@@ -117,7 +113,8 @@ net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
   uv_tcp_init(net->loop, net->handle);
   ret = uv_tcp_connect(net->conn, net->handle, dest, net_connect_cb);
   if (ret != OK) {
-    net->error_cb(net, ret);
+    err = uv_last_error(net->loop);
+    net->error_cb(net, err, uv_strerror(err));
     return;
   }
 
@@ -130,10 +127,12 @@ net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
 void 
 net_connect_cb(uv_connect_t *conn, int stat) {
   net_t * net = (net_t *) conn->data;
+  uv_err_t err;
   int read;
 
   if (stat < 0) {
-    net->error_cb(net, stat);
+    err = uv_last_error(net->loop);
+    net->error_cb(net, err, uv_strerror(err));
     return;
   }
 
@@ -181,9 +180,11 @@ net_alloc(uv_handle_t* handle, size_t size) {
 void
 net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
   net_t * net = (net_t *) handle->data;
+  uv_err_t err;
 
   if (nread < 0) {
-    net->error_cb(net, nread);
+    err = uv_last_error(net->loop);
+    net->error_cb(net, err, uv_strerror(err));
     return;
   }
 
