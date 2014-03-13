@@ -22,6 +22,7 @@ typedef struct sockaddr_in socketPair_t;
 #define NET_CONNECTION_FIELDS      \
   char *hostname;                  \
   int   port;                      \
+  int   connected;                 \
 
 
 #define NET_UV_FIELDS              \

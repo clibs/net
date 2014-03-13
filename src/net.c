@@ -8,6 +8,7 @@ net_new(char * hostname, int port) {
   net->loop = uv_default_loop();
   net->hostname = hostname;
   net->port = port;
+  net->connected = 0;
   net->use_ssl = 0;
   net->conn_cb = NULL;
   net->read_cb = NULL;
@@ -35,8 +36,8 @@ net_connect(net_t * net) {
 
 int
 net_close(net_t * net, void (*cb)(uv_handle_t*)) {
-  net->close_cb = cb;
-  uv_close((uv_handle_t*)net->handle, net->close_cb);
+  if (net->connected)
+    uv_close((uv_handle_t*)net->handle, net->close_cb);
   return OK;
 }
 
@@ -137,10 +138,14 @@ net_connect_cb(uv_connect_t *conn, int stat) {
   }
 
   /*
+   * change the `connected` state
+   */
+  net->connected = 1;
+
+  /*
    * read buffers via uv
    */
-  uv_read_start((uv_stream_t *) net->handle, 
-    net_alloc, net_read);
+  uv_read_start((uv_stream_t *) net->handle, bs_net_alloc, bs_net_read);
   NET_LOG("net", "TCP Connection established");
 
   /*
