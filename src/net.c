@@ -144,7 +144,7 @@ net_connect_cb(uv_connect_t *conn, int stat) {
   /*
    * read buffers via uv
    */
-  uv_read_start((uv_stream_t *) net->handle, bs_net_alloc, bs_net_read);
+  uv_read_start((uv_stream_t *) net->handle, net_alloc, net_read);
   NET_LOG("net", "TCP Connection established");
 
   /*
@@ -257,15 +257,21 @@ net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
 
 int
 net_write(net_t * net, char * buf) {
+  return net_write2(net, buf, strlen(buf));
+}
+
+int
+net_write2(net_t * net, char * buf, unsigned int len) {
+  uv_buf_t uvbuf;
   int read = 0;
 
   switch (net->use_ssl) {
   case USE_SSL:
-    tls_write(net->tls, buf);
+    tls_write(net->tls, buf, (int)len);
     do {
       read = tls_bio_read(net->tls, 0);
       if (read > 0) {
-        uv_buf_t uvbuf = uv_buf_init(net->tls->buf, read);
+        uvbuf = uv_buf_init(net->tls->buf, read);
         uv_write(net->writer, (uv_stream_t*)net->handle, &uvbuf, 1, net_write_cb);
       }
     }
@@ -273,8 +279,7 @@ net_write(net_t * net, char * buf) {
     break;
 
   case NOT_SSL:
-    read = strlen(buf);
-    uv_buf_t uvbuf = uv_buf_init(buf, strlen(buf));
+    uvbuf = uv_buf_init(buf, len);
     uv_write(net->writer, (uv_stream_t*)net->handle, &uvbuf, 1, net_write_cb);
     break;
   };

@@ -180,7 +180,6 @@ tls_read(tls_t *tls) {
 }
 
 int 
-tls_write(tls_t *tls, char *buf_w) {
-  SSL_write(tls->ssl, buf_w, strlen(buf_w));
-  return 0;
+tls_write(tls_t *tls, char *buf_w, int len) {
+  return SSL_write(tls->ssl, buf_w, len);
 }

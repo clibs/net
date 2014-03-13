@@ -61,7 +61,7 @@ struct net_s {
   void  *data;
   void (*conn_cb)(net_t*);
   void (*read_cb)(net_t*, size_t, char*);
-  void (*error_cb)(bs_net_t*, uv_err_t, char*);
+  void (*error_cb)(net_t*, uv_err_t, char*);
   void (*close_cb)(uv_handle_t*);
 };
 
@@ -148,6 +148,12 @@ net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf);
  */
 int
 net_write(net_t * net, char * buf);
+
+/*
+ * write buffer with length specified
+ */
+int
+net_write2(net_t * net, char * buf, unsigned int len);
 
 /*
  * return use_ssl

@@ -80,7 +80,7 @@ tls_read(tls_t*);
  * write
  */
 int 
-tls_write(tls_t*, char*);
+tls_write(tls_t*, char*, int);
 
 #endif
 /* ___TLS__ */
