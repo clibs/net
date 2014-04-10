@@ -1,59 +1,43 @@
 
-#ifndef NET_H__
-#define NET_H__
+/*
+ * Copyright 2014 <yorkiefixer@gmail.com>
+ */
 
-#include "uv.h"
+#pragma once
+
+#include <uv.h>
+#include <buffer/buffer.h>
 #include "tls.h"
-#include "buffer/buffer.h"
 
-#define OK 0
+#define NET_OK 0
 
 typedef struct net_s net_t;
 typedef struct addrinfo net_ai;
 typedef struct sockaddr_in socketPair_t;
+typedef uv_err_t err_t;
 
-#define NET_FIELDS                 \
-  NET_CONNECTION_FIELDS            \
-  NET_UV_FIELDS                    \
-  NET_TLS_FIELDS                   \
-
-
-#define NET_CONNECTION_FIELDS      \
-  char *hostname;                  \
-  int   port;                      \
-  int   connected;                 \
+#define NET_FIELDS                    \
+  NET_CONNECTION_FIELDS               \
+  NET_UV_FIELDS                       \
+  NET_TLS_FIELDS                      \
 
 
-#define NET_UV_FIELDS              \
-  uv_getaddrinfo_t *resolver;      \
-  uv_loop_t        *loop;          \
-  uv_tcp_t         *handle;        \
-  uv_write_t       *writer;        \
-  uv_connect_t     *conn;          \
+#define NET_CONNECTION_FIELDS         \
+  char *hostname;                     \
+  int   port;                         \
+  int   connected;                    \
 
 
-#define NET_TLS_FIELDS             \
-  tls_t *tls;                      \
-  int use_ssl;                     \
+#define NET_UV_FIELDS                 \
+  uv_getaddrinfo_t *resolver;         \
+  uv_loop_t        *loop;             \
+  uv_tcp_t         *handle;           \
+  uv_connect_t     *conn;             \
 
 
-#define NET_LOG(dir, format, ...) do {                                                \
-  printf("  \033[36m%s\033 : \033[90m%s\033[0m\n", dir, format, ##__VA_ARGS__);      \
-}                                                                                    \
-while (0)
-
-
-#define NET_ERROR(dir, format, ...) do {                                              \
-  printf("  \033[31m%s\031 : \033[90m%s\033[0m\n", dir, format, ##__VA_ARGS__);      \
-}                                                                                    \
-while (0)
-
-
-#define NET_ABORT(dir, format, ...) do {       \
-  NET_ERROR(dir, format, ##__VA_ARGS__);       \
-  exit(-1);                                    \
-}                                              \
-while (0)
+#define NET_TLS_FIELDS                \
+  tls_t   *tls;                       \
+  int     use_ssl;                    \
 
 
 struct net_s {
@@ -61,7 +45,7 @@ struct net_s {
   void  *data;
   void (*conn_cb)(net_t*);
   void (*read_cb)(net_t*, size_t, char*);
-  void (*error_cb)(net_t*, uv_err_t, char*);
+  void (*error_cb)(net_t*, err_t, char*);
   void (*close_cb)(uv_handle_t*);
 };
 
@@ -70,12 +54,6 @@ struct net_s {
  */
 net_t *
 net_new(char * hostname, int port);
-
-/*
- * Set uv_loop_t for network
- */
-inline int
-net_set_loop(net_t * net, uv_loop_t * loop);
 
 /*
  * Set SSL's Context
@@ -114,12 +92,6 @@ int
 net_resolve(net_t * net);
 
 /*
- * Default error cb
- */
-void
-net_error_cb(net_t * net, int err);
-
-/*
  * DNS -> IP done, and call `net_resolve_cb`
  */
 void
@@ -138,13 +110,13 @@ uv_buf_t
 net_alloc(uv_handle_t* handle, size_t size);
 
 /*
- * read buffer from remote server
+ * read buffer
  */
 void
 net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf);
 
 /*
- * write buffer to remote server
+ * write buffer
  */
 int
 net_write(net_t * net, char * buf);
@@ -158,20 +130,23 @@ net_write2(net_t * net, char * buf, unsigned int len);
 /*
  * return use_ssl
  */
-inline int
+int
 net_use_ssl(net_t * net);
 
 /*
  * continue to read after on data
  */
-inline int
+int
 net_resume(net_t * net);
+
+/*
+ * set error_cb
+ */
+int
+net_set_error_cb(net_t * net, void * cb);
 
 /*
  * write buffer, and call `net_write_cb`.
  */
 void
 net_write_cb(uv_write_t *writer, int stat);
-
-
-#endif

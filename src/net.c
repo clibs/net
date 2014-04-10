@@ -1,5 +1,6 @@
 
-#include "uv.h"
+#include <assert.h>
+#include <uv.h>
 #include "net.h"
 
 net_t *
@@ -13,69 +14,97 @@ net_new(char * hostname, int port) {
   net->conn_cb = NULL;
   net->read_cb = NULL;
   net->error_cb = NULL;
-  return net;
-}
+  net->close_cb = NULL;
+  net->handle = (uv_tcp_t *) malloc(sizeof(uv_tcp_t));
+  net->conn   = (uv_connect_t *) malloc(sizeof(uv_connect_t));
+  net->handle->data
+    = net->conn->data
+    = (void *) net;
 
-int
-net_set_loop(net_t * net, uv_loop_t * loop) {
-  net->loop = loop;
-  return OK;
+  return net;
 }
 
 int
 net_set_tls(net_t * net, tls_ctx * ctx) {
   net->use_ssl = USE_SSL;
   net->tls = tls_create(ctx);
-  return OK;
+  return NET_OK;
 }
 
 int
 net_connect(net_t * net) {
-  return net_resolve(net);
+  net_resolve(net);
+  return NET_OK;
 }
 
 int
 net_close(net_t * net, void (*cb)(uv_handle_t*)) {
-  if (net->connected)
-    uv_close((uv_handle_t*)net->handle, net->close_cb);
-  return OK;
+  int r = net->connected;
+  if (cb == NULL) {
+    cb = net->close_cb;
+  }
+  if (r == 1) {
+    net->connected = 0;
+    if (net->use_ssl) {
+      tls_free(net->tls);
+    }
+    uv_close((uv_handle_t*)net->handle, cb);
+  }
+  return r;
 }
 
 int
 net_free(net_t * net) {
-  net_close(net, net_free_cb);
-  return OK;
+  if (!net_close(net, net_free_cb) && net != NULL) {
+    free(net);
+    net = NULL;
+  }
+  return NET_OK;
 }
 
 void
 net_free_cb(uv_handle_t * handle) {
   net_t * net = (net_t *) handle->data;
-  tls_free(net->tls);
-  free(net->handle);
-  free(net->writer);
-  free(net->conn);
-  free(net->resolver);
-  free(net);
+  if (net->handle != NULL) {
+    free(net->handle);
+    net->handle = NULL;
+  }
+  if (net->conn != NULL) {
+    free(net->conn);
+    net->conn = NULL;
+  }
+  if (net->resolver != NULL) {
+    free(net->resolver);
+    net->resolver = NULL;
+  }
+
+  if (net != NULL) {
+    free(net);
+    net = NULL;
+  }
 }
 
-int 
+int
 net_resolve(net_t * net) {
   net_ai hints;
   int ret;
   char buf[6];
 
-  snprintf(buf, 6, "%d", net->port);
+  snprintf(buf, sizeof(buf), "%d", net->port);
   memset(&hints, 0, sizeof(struct addrinfo));
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
 
   net->resolver = malloc(sizeof(uv_getaddrinfo_t));
   if (!net->resolver) {
+    /*
+     * TODO(Yorkie): depent parital handles
+     */
     return -1;
   }
 
   net->resolver->data = (void *) net;
-  ret = uv_getaddrinfo(net->loop, net->resolver, 
+  ret = uv_getaddrinfo(net->loop, net->resolver,
     net_resolve_cb, net->hostname, NULL, &hints);
 
   return ret;
@@ -84,25 +113,21 @@ net_resolve(net_t * net) {
 void
 net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
   net_t * net = (net_t*) rv->data;
-  uv_err_t err;
+  err_t err;
   socketPair_t dest;
   char addr[INET6_ADDRSTRLEN];
   int ret;
 
-  if (stat < 0) {
+  if (stat != 0) {
     err = uv_last_error(net->loop);
-    net->error_cb(net, err, uv_strerror(err));
+    if (net->error_cb) {
+      net->error_cb(net, err, (char *) uv_strerror(err));
+    } else {
+      printf("error(%s:%d) %s", net->hostname, net->port, (char *) uv_strerror(err));
+      net_free(net);
+    }
     return;
   }
-
-  net->handle = (uv_tcp_t *) malloc(sizeof(uv_tcp_t));
-  net->writer = (uv_write_t *) malloc(sizeof(uv_write_t));
-  net->conn   = (uv_connect_t *) malloc(sizeof(uv_connect_t));
-
-  net->handle->data 
-   = net->writer->data
-   = net->conn->data
-   = (void *) net;
 
   uv_ip4_name((socketPair_t *) ai->ai_addr, addr, INET6_ADDRSTRLEN);
   dest = uv_ip4_addr(addr, net->port);
@@ -112,9 +137,14 @@ net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
    */
   uv_tcp_init(net->loop, net->handle);
   ret = uv_tcp_connect(net->conn, net->handle, dest, net_connect_cb);
-  if (ret != OK) {
+  if (ret != NET_OK) {
     err = uv_last_error(net->loop);
-    net->error_cb(net, err, uv_strerror(err));
+    if (net->error_cb) {
+      net->error_cb(net, err, (char *) uv_strerror(err));
+    } else {
+      printf("error(%s:%d) %s", net->hostname, net->port, (char *) uv_strerror(err));
+      net_free(net);
+    }
     return;
   }
 
@@ -124,15 +154,20 @@ net_resolve_cb(uv_getaddrinfo_t *rv, int stat, net_ai * ai) {
   uv_freeaddrinfo(ai);
 }
 
-void 
+void
 net_connect_cb(uv_connect_t *conn, int stat) {
   net_t * net = (net_t *) conn->data;
-  uv_err_t err;
+  err_t err;
   int read;
 
   if (stat < 0) {
     err = uv_last_error(net->loop);
-    net->error_cb(net, err, uv_strerror(err));
+    if (net->error_cb) {
+      net->error_cb(net, err, (char *) uv_strerror(err));
+    } else {
+      printf("error(%s:%d) %s", net->hostname, net->port, (char *) uv_strerror(err));
+      net_free(net);
+    }
     return;
   }
 
@@ -145,7 +180,6 @@ net_connect_cb(uv_connect_t *conn, int stat) {
    * read buffers via uv
    */
   uv_read_start((uv_stream_t *) net->handle, net_alloc, net_read);
-  NET_LOG("net", "TCP Connection established");
 
   /*
    * call `conn_cb`, the tcp connection has been 
@@ -158,16 +192,16 @@ net_connect_cb(uv_connect_t *conn, int stat) {
   /*
    * Handle TLS Partial
    */
-  if (net->use_ssl == USE_SSL && tls_connect(net->tls) == OK) {
+  if (net->use_ssl == USE_SSL && tls_connect(net->tls) == NET_OK) {
     read = 0;
     do {
       read = tls_bio_read(net->tls, 0);
       if (read > 0) {
+        uv_write_t req;
         uv_buf_t uvbuf = uv_buf_init(net->tls->buf, read);
-        uv_write(net->writer, (uv_stream_t*)net->handle, &uvbuf, 1, NULL);
+        uv_write(&req, (uv_stream_t*)net->handle, &uvbuf, 1, NULL);
       }
-    } 
-    while (read > 0);
+    } while (read > 0);
   }
 }
 
@@ -180,11 +214,16 @@ net_alloc(uv_handle_t* handle, size_t size) {
 void
 net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
   net_t * net = (net_t *) handle->data;
-  uv_err_t err;
+  err_t err;
 
   if (nread < 0) {
     err = uv_last_error(net->loop);
-    net->error_cb(net, err, uv_strerror(err));
+    if (net->error_cb) {
+      net->error_cb(net, err, (char *) uv_strerror(err));
+    } else {
+      printf("error(%s:%d) %s", net->hostname, net->port, (char *) uv_strerror(err));
+      net_free(net);
+    }
     return;
   }
 
@@ -196,8 +235,6 @@ net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
    * return value is -2 then the operation is not implemented in the specific BIO type.
    */
   if (net->use_ssl) {
-    net->tls->data = malloc(1);
-
     tls_bio_write(net->tls, buf.base, nread);
     free(buf.base);
 
@@ -210,37 +247,26 @@ net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
       do {
         read = tls_bio_read(net->tls, 0);
         if (read > 0) {
+          uv_write_t req;
           uv_buf_t uvbuf = uv_buf_init(net->tls->buf, read);
-          uv_write(net->writer, (uv_stream_t*)net->handle, &uvbuf, 1, NULL);
+          uv_write(&req, (uv_stream_t*)net->handle, &uvbuf, 1, NULL);
         }
-      } 
-      while (read > 0);
-    
+      } while (read > 0);
+
     } else if (stat == 0) {
       /*
        * SSL Connection is created
        * Here need to call user-land callback
        */
       uv_read_stop((uv_stream_t*)net->handle);
-      if (net->read_cb != NULL) {
-        net->read_cb(net, buffer_length(net->tls->buffer), buffer_string(net->tls->buffer));
+      if (net->read_cb != NULL && net->connected) {
+        net->read_cb(net, buffer_length(net->tls->buffer),
+                          buffer_string(net->tls->buffer));
       }
-
     } else if (stat == -1) {
-      /*
-       * Just connection in SSL
-       * call `conn_cb`, the ssl connection has been 
-       *   established in user-land.
-       */
-      NET_LOG("net", "SSL Connection established");
       if (net->conn_cb != NULL) {
         net->conn_cb(net);
       }
-
-    } else {
-      /*
-       * TODO(Yorkie): HOWTO
-       */
     }
     return;
   }
@@ -252,6 +278,7 @@ net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
   buf.base[nread] = 0;
   if (net->read_cb != NULL) {
     net->read_cb(net, nread, buf.base);
+    free(buf.base);
   }
 }
 
@@ -262,8 +289,11 @@ net_write(net_t * net, char * buf) {
 
 int
 net_write2(net_t * net, char * buf, unsigned int len) {
+  uv_write_t * req;
   uv_buf_t uvbuf;
   int read = 0;
+  req = (uv_write_t *) malloc(sizeof(uv_write_t));
+  req->data = net;
 
   switch (net->use_ssl) {
   case USE_SSL:
@@ -272,19 +302,24 @@ net_write2(net_t * net, char * buf, unsigned int len) {
       read = tls_bio_read(net->tls, 0);
       if (read > 0) {
         uvbuf = uv_buf_init(net->tls->buf, read);
-        uv_write(net->writer, (uv_stream_t*)net->handle, &uvbuf, 1, net_write_cb);
+        uv_write(req, (uv_stream_t*)net->handle,
+                              &uvbuf,
+                              1,
+                              net_write_cb);
       }
-    }
-    while (read > 0);
+    } while (read > 0);
     break;
 
   case NOT_SSL:
     uvbuf = uv_buf_init(buf, len);
-    uv_write(net->writer, (uv_stream_t*)net->handle, &uvbuf, 1, net_write_cb);
+    uv_write(req, (uv_stream_t*)net->handle,
+                          &uvbuf,
+                          1,
+                          net_write_cb);
     break;
-  };
+  }
 
-  return OK;
+  return NET_OK;
 }
 
 int
@@ -295,11 +330,18 @@ net_use_ssl(net_t * net) {
 int
 net_resume(net_t * net) {
   uv_read_start((uv_stream_t *)net->handle, net_alloc, net_read);
-  return OK;
+  return NET_OK;
+}
+
+int
+net_set_error_cb(net_t * net, void * cb) {
+  net->error_cb = cb;
+  return NET_OK;
 }
 
 void
-net_write_cb(uv_write_t *writer, int stat) {
-  net_t * net = (net_t *) writer->data;
+net_write_cb(uv_write_t *req, int stat) {
+  net_t * net = (net_t *) req->data;
+  free(req);
   net_resume(net);
 }
