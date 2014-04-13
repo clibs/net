@@ -10,6 +10,7 @@ net_new(char * hostname, int port) {
   net->hostname = hostname;
   net->port = port;
   net->connected = 0;
+  net->tls_established = 0;
   net->use_ssl = 0;
   net->conn_cb = NULL;
   net->read_cb = NULL;
@@ -45,6 +46,7 @@ net_close(net_t * net, void (*cb)(uv_handle_t*)) {
   }
   if (r == 1) {
     net->connected = 0;
+    net->tls_established = 0;
     if (net->use_ssl) {
       tls_free(net->tls);
     }
@@ -55,6 +57,7 @@ net_close(net_t * net, void (*cb)(uv_handle_t*)) {
 
 int
 net_free(net_t * net) {
+  printf("end\n");
   if (!net_close(net, net_free_cb) && net != NULL) {
     free(net);
     net = NULL;
@@ -77,7 +80,6 @@ net_free_cb(uv_handle_t * handle) {
     free(net->resolver);
     net->resolver = NULL;
   }
-
   if (net != NULL) {
     free(net);
     net = NULL;
@@ -197,9 +199,13 @@ net_connect_cb(uv_connect_t *conn, int stat) {
     do {
       read = tls_bio_read(net->tls, 0);
       if (read > 0) {
-        uv_write_t req;
-        uv_buf_t uvbuf = uv_buf_init(net->tls->buf, read);
-        uv_write(&req, (uv_stream_t*)net->handle, &uvbuf, 1, NULL);
+        char buf[read];
+        uv_write_t * req = malloc(sizeof(uv_write_t));
+        req->data = net;
+        memset(buf, 0, read);
+        memcpy(buf, net->tls->buf, read);
+        uv_buf_t uvbuf = uv_buf_init(buf, read);
+        uv_write(req, (uv_stream_t*)net->handle, &uvbuf, 1, net_write_cb);
       }
     } while (read > 0);
   }
@@ -213,6 +219,7 @@ net_alloc(uv_handle_t* handle, size_t size) {
 
 void
 net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
+  printf("%d\n", nread);
   net_t * net = (net_t *) handle->data;
   err_t err;
 
@@ -247,25 +254,39 @@ net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
       do {
         read = tls_bio_read(net->tls, 0);
         if (read > 0) {
-          uv_write_t req;
-          uv_buf_t uvbuf = uv_buf_init(net->tls->buf, read);
-          uv_write(&req, (uv_stream_t*)net->handle, &uvbuf, 1, NULL);
+          char buf2[read];
+          uv_write_t * req = malloc(sizeof(uv_write_t));
+          req->data = net;
+          memset(buf2, 0, read);
+          memcpy(buf2, net->tls->buf, read);
+          uv_buf_t uvbuf = uv_buf_init(buf2, read);
+          uv_write(req, (uv_stream_t*)net->handle, &uvbuf, 1, net_write_cb);
         }
       } while (read > 0);
 
-    } else if (stat == 0) {
+    } else {
       /*
        * SSL Connection is created
        * Here need to call user-land callback
        */
-      uv_read_stop((uv_stream_t*)net->handle);
-      if (net->read_cb != NULL && net->connected) {
-        net->read_cb(net, buffer_length(net->tls->buffer),
-                          buffer_string(net->tls->buffer));
+      if (!net->tls_established) {
+        net->tls_established = 1;
+        if (net->conn_cb != NULL) {
+          net->conn_cb(net);
+        }
       }
-    } else if (stat == -1) {
-      if (net->conn_cb != NULL) {
-        net->conn_cb(net);
+
+      /*
+       * read buffer
+       */
+      if (stat == 0) {
+        if (buffer_string(net->tls->buffer) > 0)
+          uv_read_stop((uv_stream_t*)net->handle);
+
+        if (net->read_cb != NULL && net->connected && net->tls_established) {
+          net->read_cb(net, buffer_length(net->tls->buffer),
+                            buffer_string(net->tls->buffer));
+        }
       }
     }
     return;
@@ -292,13 +313,13 @@ net_write2(net_t * net, char * buf, unsigned int len) {
   uv_write_t * req;
   uv_buf_t uvbuf;
   int read = 0;
-  req = (uv_write_t *) malloc(sizeof(uv_write_t));
-  req->data = net;
 
   switch (net->use_ssl) {
   case USE_SSL:
     tls_write(net->tls, buf, (int)len);
     do {
+      req = (uv_write_t *) malloc(sizeof(uv_write_t));
+      req->data = net;
       read = tls_bio_read(net->tls, 0);
       if (read > 0) {
         uvbuf = uv_buf_init(net->tls->buf, read);
@@ -311,6 +332,8 @@ net_write2(net_t * net, char * buf, unsigned int len) {
     break;
 
   case NOT_SSL:
+    req = (uv_write_t *) malloc(sizeof(uv_write_t));
+    req->data = net;
     uvbuf = uv_buf_init(buf, len);
     uv_write(req, (uv_stream_t*)net->handle,
                           &uvbuf,
@@ -330,6 +353,12 @@ net_use_ssl(net_t * net) {
 int
 net_resume(net_t * net) {
   uv_read_start((uv_stream_t *)net->handle, net_alloc, net_read);
+  return NET_OK;
+}
+
+int
+net_pause(net_t * net) {
+  uv_read_stop((uv_stream_t *)net->handle);
   return NET_OK;
 }
 

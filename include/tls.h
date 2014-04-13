@@ -6,23 +6,30 @@
 #pragma once
 
 #include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <buffer/buffer.h>
 
 #define NOT_SSL 0x00
 #define USE_SSL 0x01
 
 typedef SSL_CTX tls_ctx;
-
 typedef struct tls_s {
-  SSL_CTX *ctx;
-  SSL *ssl;
-  BIO *bio_in;
-  BIO *bio_out;
+  SSL_CTX * ctx;
+  SSL * ssl;
+  BIO * bio_in;
+  BIO * bio_out;
+  buffer_t * buffer;
   int connected;
-  char buf[4086];
-  char *data;
-  buffer_t *buffer;
+  char * data;
+  char buf[512]; /* internal usage */
 } tls_t;
+
+static const int X509_NAME_FLAGS = ASN1_STRFLGS_ESC_CTRL
+                                 | ASN1_STRFLGS_ESC_MSB
+                                 | XN_FLAG_SEP_MULTILINE
+                                 | XN_FLAG_FN_SN;
 
 /*
  * initialize the ssl
@@ -55,10 +62,28 @@ int
 tls_free(tls_t * tls);
 
 /*
+ * get peer certification info
+ */
+int
+tls_get_peer_cert(tls_t * tls);
+
+/*
  * do connect to tls
  */
 int
 tls_connect(tls_t * tls);
+
+/*
+ * handle error in bio
+ */
+int
+tls_handle_bio_error(tls_t * tls, int err);
+
+/*
+ * handle error in ssl
+ */
+int
+tls_handle_ssl_error(tls_t *tls, int err);
 
 /*
  * a port in tls for `bio_read`
@@ -87,12 +112,12 @@ tls_write(tls_t * tls, char * written, int len);
 /*
  * write a tls packet
  */
-#define REQUEST_TLS_WRITE(name, cmd, read, req) do {                   \
-  tls_write(req->tls, cmd);                                            \
+#define REQUEST_TLS_WRITE(name, cmd, read, req) do {                      \
+  tls_write(req->tls, cmd);                                               \
   do {                                                                    \
-    read = tls_bio_read(req->tls, 0);                                  \
+    read = tls_bio_read(req->tls, 0);                                     \
     if (read > 0) {                                                       \
-      REQUEST_WRITE(req, req->tls->buf, read, name);                   \
+      REQUEST_WRITE(req, req->tls->buf, read, name);                      \
     }                                                                     \
   } while (read > 0);                                                     \
 }                                                                         \

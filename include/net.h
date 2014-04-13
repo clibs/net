@@ -10,6 +10,10 @@
 #include "tls.h"
 
 #define NET_OK 0
+#define NET_VERSION_MAJOR 0
+#define NET_VERSION_MINOR 1
+#define NET_VERSION_PATCH 1
+#define NET_VERSION_IS_RELEASE 0
 
 typedef struct net_s net_t;
 typedef struct addrinfo net_ai;
@@ -38,6 +42,7 @@ typedef uv_err_t err_t;
 #define NET_TLS_FIELDS                \
   tls_t   *tls;                       \
   int     use_ssl;                    \
+  int     tls_established;            \
 
 
 struct net_s {
@@ -138,6 +143,12 @@ net_use_ssl(net_t * net);
  */
 int
 net_resume(net_t * net);
+
+/*
+ * pause read
+ */
+int
+net_pause(net_t * net);
 
 /*
  * set error_cb

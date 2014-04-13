@@ -4,8 +4,6 @@
  */
 
 #include <assert.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 #include "tls.h"
 
 void
@@ -24,14 +22,14 @@ ssl_destroy() {
 
 tls_ctx *
 tls_ctx_new() {
-  tls_ctx *ctx = SSL_CTX_new(SSLv23_client_method());
+  tls_ctx *ctx = SSL_CTX_new(SSLv23_method());
   SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION);
   return ctx;
 }
 
 tls_t *
 tls_create(tls_ctx *ctx) {
-  tls_t *tls = (tls_t *) malloc(sizeof(tls_t));
+  tls_t * tls = (tls_t *) malloc(sizeof(tls_t));
   if (tls == NULL)
     printf("tls> %s", "Out of Memory");
 
@@ -42,7 +40,11 @@ tls_create(tls_ctx *ctx) {
   tls->connected = -1;
   tls->buffer = buffer_new();
 
-  SSL_set_mode(tls->ssl, SSL_get_mode(tls->ssl) | SSL_MODE_RELEASE_BUFFERS);
+#ifdef SSL_MODE_RELEASE_BUFFERS
+  long mode = SSL_get_mode(tls->ssl);
+  SSL_set_mode(tls->ssl, mode | SSL_MODE_RELEASE_BUFFERS);
+#endif
+
   if (tls->ssl == NULL)
     printf("tls> %s", "Out of Memory");
 
@@ -53,6 +55,7 @@ tls_create(tls_ctx *ctx) {
 
 int
 tls_free(tls_t * tls) {
+
   if (tls == NULL) {
     return 0;
   }
@@ -65,9 +68,26 @@ tls_free(tls_t * tls) {
     tls->ssl = NULL;
   }
 
+  tls->ctx = NULL;
   buffer_free(tls->buffer);
   free(tls);
   tls = NULL;
+  return 0;
+}
+
+int
+tls_get_peer_cert(tls_t *tls) {
+  X509* peer_cert = SSL_get_peer_certificate(tls->ssl);
+  BIO *bio;
+  BUF_MEM* mem;
+  int len;
+
+  if (peer_cert != NULL) {
+    /*
+     * TODO(Yorkie): This function is used just for debug
+     */
+    X509_free(peer_cert);
+  }
   return 0;
 }
 
@@ -98,6 +118,38 @@ tls_connect(tls_t *tls) {
 }
 
 int
+tls_handle_bio_error(tls_t *tls, int err) {
+  int rv;
+  int retry = BIO_should_retry(tls->bio_out);
+  if (BIO_should_write(tls->bio_out))
+    rv = -retry;
+  else if (BIO_should_read(tls->bio_out))
+    rv = -retry;
+  else {
+    char ssl_error_buf[512];
+    ERR_error_string_n(err, ssl_error_buf, sizeof(ssl_error_buf));
+    fprintf(stderr, "[%p] BIO: read failed: (%d) %s\n", tls->ssl, err, ssl_error_buf);
+    return err;
+  }
+  return err;
+}
+
+int
+tls_handle_ssl_error(tls_t *tls, int err) {
+  int ret;
+  int rv = SSL_get_error(tls->ssl, err);
+  switch (rv) {
+    case SSL_ERROR_WANT_READ:
+      ret = 1;
+      break;
+    default:
+      ret = -2;
+      break;
+  }
+  return ret;
+}
+
+int
 tls_bio_read(tls_t *tls, int buf_len) {
   if (buf_len == 0) {
     buf_len = sizeof(tls->buf);
@@ -105,31 +157,21 @@ tls_bio_read(tls_t *tls, int buf_len) {
   memset(tls->buf, 0, buf_len);
 
   int ret = BIO_read(tls->bio_out, tls->buf, buf_len);
-  if (ret > 0) {
-    tls->buf[ret] = '\0';
+  if (ret >= 0) {
+    tls->buf[ret] = 0;
     return ret;
-  }
-
-  int retry = BIO_should_retry(tls->bio_out);
-  if (BIO_should_write(tls->bio_out)) {
-    return -retry;
-
-  } else if (BIO_should_read(tls->bio_out)) {
-    return -retry;
-
   } else {
-    char ssl_error_buf[512];
-    ERR_error_string_n(ret, ssl_error_buf, sizeof(ssl_error_buf));
-    fprintf(stderr, "[%p] BIO: read failed: (%d) %s\n", tls->ssl, ret, ssl_error_buf);
-    return ret;
+    return tls_handle_bio_error(tls, ret);
   }
 }
 
 int
 tls_bio_write(tls_t *tls, char *buf, int len) {
-  assert(len >= 0);
   int ret = BIO_write(tls->bio_in, buf, len);
-  return ret;
+  if (ret >= 0)
+    return ret;
+  else
+    return tls_handle_bio_error(tls, ret);
 }
 
 int
@@ -141,19 +183,8 @@ tls_read(tls_t *tls) {
   int done = SSL_is_init_finished(tls->ssl);
   if (!done) {
     err = SSL_connect(tls->ssl);
-
     if (err <= 0) {
-      err = SSL_get_error(tls->ssl, err);
-      switch (err) {
-      case SSL_ERROR_WANT_READ:
-        ret = 1;
-        break;
-      default:
-        ret = -2;
-        break;
-      }
-
-      return ret;
+      return tls_handle_ssl_error(tls, err);
     }
 
     /*
@@ -170,8 +201,10 @@ tls_read(tls_t *tls) {
     read = SSL_read(tls->ssl, tls->buf, sizeof(tls->buf));
     if (read > 0) {
       ret = 0;
-      tls->buf[read] = '\0';
+      tls->buf[read] = 0;
       buffer_append(tls->buffer, tls->buf);
+    } else {
+      tls_handle_ssl_error(tls, read);
     }
   } while (read > 0);
 
