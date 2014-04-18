@@ -41,27 +41,27 @@ net_connect(net_t * net) {
 int
 net_close(net_t * net, void (*cb)(uv_handle_t*)) {
   int r = net->connected;
-  if (cb == NULL) {
-    cb = net->close_cb;
-  }
   if (r == 1) {
     net->connected = 0;
     net->tls_established = 0;
     if (net->use_ssl) {
-      tls_free(net->tls);
+      tls_shutdown(net->tls);
     }
     uv_close((uv_handle_t*)net->handle, cb);
+    if (net->use_ssl) {
+      tls_free(net->tls);
+    }
   }
+
+  fprintf(stdout, "> close socket for %s\n", net->hostname);
   return r;
 }
 
 int
 net_free(net_t * net) {
-  printf("end\n");
-  if (!net_close(net, net_free_cb) && net != NULL) {
-    free(net);
-    net = NULL;
-  }
+  net_close(net, NULL);
+  free(net->resolver);
+  free(net);
   return NET_OK;
 }
 
@@ -219,7 +219,7 @@ net_alloc(uv_handle_t* handle, size_t size) {
 
 void
 net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
-  printf("%d\n", nread);
+
   net_t * net = (net_t *) handle->data;
   err_t err;
 
@@ -281,7 +281,7 @@ net_read(uv_stream_t *handle, ssize_t nread, const uv_buf_t buf) {
        */
       if (stat == 0) {
         if (buffer_string(net->tls->buffer) > 0)
-          uv_read_stop((uv_stream_t*)net->handle);
+          // uv_read_stop((uv_stream_t*)net->handle);
 
         if (net->read_cb != NULL && net->connected && net->tls_established) {
           net->read_cb(net, buffer_length(net->tls->buffer),
@@ -318,10 +318,10 @@ net_write2(net_t * net, char * buf, unsigned int len) {
   case USE_SSL:
     tls_write(net->tls, buf, (int)len);
     do {
-      req = (uv_write_t *) malloc(sizeof(uv_write_t));
-      req->data = net;
       read = tls_bio_read(net->tls, 0);
       if (read > 0) {
+        req = (uv_write_t *) malloc(sizeof(uv_write_t));
+        req->data = net;
         uvbuf = uv_buf_init(net->tls->buf, read);
         uv_write(req, (uv_stream_t*)net->handle,
                               &uvbuf,
@@ -370,7 +370,6 @@ net_set_error_cb(net_t * net, void * cb) {
 
 void
 net_write_cb(uv_write_t *req, int stat) {
-  net_t * net = (net_t *) req->data;
   free(req);
-  net_resume(net);
+  net_resume((net_t*)req->data);
 }

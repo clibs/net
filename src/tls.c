@@ -29,9 +29,9 @@ tls_ctx_new() {
 
 tls_t *
 tls_create(tls_ctx *ctx) {
-  tls_t * tls = (tls_t *) malloc(sizeof(tls_t));
+  tls_t * tls = (tls_t *) malloc(sizeof(tls_t)+1);
   if (tls == NULL)
-    printf("tls> %s", "Out of Memory");
+    fprintf(stderr, "tls> %s", "Out of Memory");
 
   tls->ctx = ctx;
   tls->ssl = SSL_new(tls->ctx);
@@ -54,34 +54,30 @@ tls_create(tls_ctx *ctx) {
 }
 
 int
-tls_free(tls_t * tls) {
-
-  if (tls == NULL) {
-    return 0;
-  }
+tls_shutdown(tls_t * tls) {
+  assert(tls != NULL);
   if (SSL_shutdown(tls->ssl) == 0) {
     SSL_shutdown(tls->ssl);
   }
+  return 0;
+}
 
-  if (tls->ssl != NULL) {
+int
+tls_free(tls_t * tls) {
+  if (tls->ssl) {
     SSL_free(tls->ssl);
+    SSL_CTX_free(tls->ctx);
     tls->ssl = NULL;
   }
 
-  tls->ctx = NULL;
   buffer_free(tls->buffer);
   free(tls);
-  tls = NULL;
   return 0;
 }
 
 int
 tls_get_peer_cert(tls_t *tls) {
   X509* peer_cert = SSL_get_peer_certificate(tls->ssl);
-  BIO *bio;
-  BUF_MEM* mem;
-  int len;
-
   if (peer_cert != NULL) {
     /*
      * TODO(Yorkie): This function is used just for debug
@@ -198,7 +194,7 @@ tls_read(tls_t *tls) {
 
   ret = -1;
   do {
-    read = SSL_read(tls->ssl, tls->buf, sizeof(tls->buf));
+    read = SSL_read(tls->ssl, tls->buf, SSL_CHUNK_SIZE);
     if (read > 0) {
       ret = 0;
       tls->buf[read] = 0;

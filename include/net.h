@@ -12,7 +12,7 @@
 #define NET_OK 0
 #define NET_VERSION_MAJOR 0
 #define NET_VERSION_MINOR 1
-#define NET_VERSION_PATCH 1
+#define NET_VERSION_PATCH 2
 #define NET_VERSION_IS_RELEASE 0
 
 typedef struct net_s net_t;

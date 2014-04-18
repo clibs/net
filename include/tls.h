@@ -13,6 +13,7 @@
 
 #define NOT_SSL 0x00
 #define USE_SSL 0x01
+#define SSL_CHUNK_SIZE 512
 
 typedef SSL_CTX tls_ctx;
 typedef struct tls_s {
@@ -23,7 +24,7 @@ typedef struct tls_s {
   buffer_t * buffer;
   int connected;
   char * data;
-  char buf[512]; /* internal usage */
+  char buf[SSL_CHUNK_SIZE]; /* internal usage */
 } tls_t;
 
 static const int X509_NAME_FLAGS = ASN1_STRFLGS_ESC_CTRL
@@ -54,6 +55,12 @@ tls_ctx_new();
  */
 tls_t *
 tls_create(tls_ctx * ctx);
+
+/*
+ * shutdown tls
+ */
+int
+tls_shutdown(tls_t * tls);
 
 /*
  * destroy a tls instance
