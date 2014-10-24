@@ -15,8 +15,9 @@
     "include/net.h",
     "include/tls.h"
   ],
-  "dependencies": { 
+  "dependencies": {
     "buffer": "*",
+    "nan": "^1.3.0",
     "uv": "*"
   }
 }
