@@ -23,7 +23,10 @@ ssl_destroy() {
 tls_ctx *
 tls_ctx_new() {
   tls_ctx *ctx = SSL_CTX_new(SSLv23_method());
+#ifdef SSL_OP_NO_COMPRESSION
   SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION);
+#endif
+  
   return ctx;
 }
 
